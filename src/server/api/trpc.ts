@@ -6,11 +6,13 @@
  * TL;DR - This is where all the tRPC server stuff is created and plugged in. The pieces you will
  * need to use are documented accordingly near the end.
  */
-import { initTRPC } from "@trpc/server";
+import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 
 import { db } from "@/server/db";
+import { auth } from "@clerk/nextjs/server";
+import { TRPCClientError } from "@trpc/client";
 
 /**
  * 1. CONTEXT
@@ -38,6 +40,16 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
  * ZodErrors so that you get typesafety on the frontend if your procedure fails due to validation
  * errors on the backend.
  */
+
+
+// t is just a custom variable name that holds all the tRPC utilities
+// t.thing	What it does
+// t.router()	Creates a new tRPC router
+// t.procedure	Starts defining a query or mutation
+// t.middleware()	Creates a middleware like your isAuthenticated example
+// t.mergeRouters()	Combines multiple routers
+
+
 const t = initTRPC.context<typeof createTRPCContext>().create({
   transformer: superjson,
   errorFormatter({ shape, error }) {
@@ -79,6 +91,55 @@ export const createTRPCRouter = t.router;
  * You can remove this if you don't like it, but it can help catch unwanted waterfalls by simulating
  * network latency that would occur in production but not in local development.
  */
+
+
+
+// A middleware is like a gatekeeper or checkpoint in your application that runs before the main logic.
+
+// You can think of it as:
+// “Before you enter the room (handler), let me check your ticket (authentication).”
+
+// Middleware is a function that:
+
+// Runs before your API endpoint.
+
+// Middleware Flow (in tRPC):
+
+
+// Client → Middleware → (passes?) → Handler → Response
+//                    → (fails?) → Error → Response
+
+// next() is a function that tells tRPC:
+// “I'm done with this middleware, you can go to the next step now.”
+
+
+
+const isAuthenticated = t.middleware(async ({ next, ctx }) => {
+  const user = await auth() 
+  if (!user) {
+    throw new TRPCError({ code: "UNAUTHORIZED" ,
+      message: 'You must be logged in'
+    });
+  }
+  return next({ // continues to the next procedure or middleware
+    ctx:{
+      ...ctx,  // Take existing context
+      user   // Add/override user key
+    }
+  }); 
+});
+
+// ctx is just a shared object that holds useful data for each request, like:
+// The logged-in user
+
+// The database connection
+
+// The request session
+
+// Anything you want to access in middleware or procedures
+
+
+
 const timingMiddleware = t.middleware(async ({ next, path }) => {
   const start = Date.now();
 
@@ -104,3 +165,7 @@ const timingMiddleware = t.middleware(async ({ next, path }) => {
  * are logged in.
  */
 export const publicProcedure = t.procedure.use(timingMiddleware);
+export const protectedProcedure = t.procedure.use(isAuthenticated);
+//procedure is like a api endpoint
+//use is used to attach middleware to the procedure
+//protectedProcedure is a procedure that is protected by authentication we created it 
